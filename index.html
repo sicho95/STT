@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#111827" />
+  <title>Offline STT</title>
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">Offline STT</div>
+    <button id="hamburger" class="icon-btn" aria-label="Menu">☰</button>
+  </header>
+
+  <aside id="drawer" class="drawer" aria-hidden="true">
+    <div class="drawer-head">
+      <div class="drawer-title">Paramètres</div>
+      <button id="drawerClose" class="icon-btn" aria-label="Fermer">✕</button>
+    </div>
+
+    <section class="card">
+      <div class="label">Moteur</div>
+      <label class="row"><input type="radio" name="engine" value="auto" checked> Auto</label>
+      <label class="row"><input type="radio" name="engine" value="webgpu"> WebGPU</label>
+      <label class="row"><input type="radio" name="engine" value="wasm"> WASM</label>
+      <div class="hint">Auto: si (!navigator.gpu) → WASM.</div>
+    </section>
+
+    <section class="card">
+      <div class="label">Source modèles</div>
+      <label class="row"><input type="radio" name="modelSource" value="remote" checked> Remote (téléchargé 1ère fois)</label>
+      <label class="row"><input type="radio" name="modelSource" value="local"> Local (./models/)</label>
+      <div class="hint">Remote: en ligne au 1er chargement, ensuite offline via cache.</div>
+    </section>
+
+    <section class="card">
+      <div class="label">Modèle</div>
+      <select id="modelSelect" class="input"></select>
+      <div class="hint">WebGPU: ONNX (onnx-community). WASM: ggml-tiny (whisper.cpp).</div>
+    </section>
+
+    <section class="card">
+      <div class="label">Langue</div>
+      <select id="langSelect" class="input">
+        <option value="auto">Auto</option>
+        <option value="fr">Français</option>
+        <option value="en">English</option>
+      </select>
+    </section>
+
+    <section class="card">
+      <div class="label">Chunk (secondes)</div>
+      <input id="chunkSec" class="input" type="number" min="2" max="30" step="1" value="5" />
+      <div class="hint">Transcription micro par chunks réguliers (texte partiel).</div>
+    </section>
+
+    <section class="card">
+      <button id="purgeModelCache" class="btn secondary">Vider cache (app + modèles)</button>
+    </section>
+  </aside>
+
+  <main class="main">
+    <div class="statusbar">
+      <span id="netStatus" class="pill">-</span>
+      <span id="engineStatus" class="pill">engine: -</span>
+      <span id="modelStatus" class="pill">model: -</span>
+    </div>
+
+    <section class="card">
+      <div class="controls">
+        <button id="micBtn" class="btn primary">🎙️ Parler</button>
+        <button id="stopBtn" class="btn" disabled>Stop</button>
+      </div>
+
+      <div class="controls" style="margin-top:10px">
+        <label class="filebtn">
+          Choisir un fichier audio
+          <input id="fileInput" type="file" accept="audio/*" hidden />
+        </label>
+        <div class="progress-wrap" aria-label="Progression">
+          <div id="fileProgress" class="progress"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="label">Transcription</div>
+      <div id="transcript" class="transcript"></div>
+      <div class="actions">
+        <button id="copyBtn" class="btn">Copier</button>
+        <button id="exportBtn" class="btn">Exporter .txt</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="label">Notes</div>
+      <div class="hint">
+        Pour que l'offline marche, lance une première transcription en ligne afin que le navigateur mette en cache les modèles.
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
