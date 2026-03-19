@@ -268,24 +268,68 @@
         }
         // GESTION DU MICRO
         let rec;
-        document.getElementById('btn-rec').onclick = async function() {
-            if (!rec || rec.state === 'inactive') {
-                try {
-                    const s = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    rec = new MediaRecorder(s);
-                    let ch = [];
-                    rec.ondataavailable = e => ch.push(e.data);
-                    rec.onstop = async () => processAudio(await new Blob(ch).arrayBuffer());
-                    rec.start();
-                    this.innerText = "⏹ Arrêter l'enregistrement";
-                    this.style.background = "#1c1c1e";
-                } catch(e) { alert("Accès micro refusé : " + e.message); }
-            } else { 
-                rec.stop(); 
-                this.innerText = "🎤 Enregistrer Micro"; 
-                this.style.background = "var(--d)";
-            }
-        };
+                let audioChunks = [];
+                let intervalId;
+
+                document.getElementById('btn-rec').onclick = async function() {
+                    if (!rec || rec.state === 'inactive') {
+                        try {
+                            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                            rec = new MediaRecorder(stream);
+                            audioChunks = [];
+                            
+                            rec.ondataavailable = e => {
+                                if (e.data.size > 0) audioChunks.push(e.data);
+                            };
+
+                            rec.onstop = () => { clearInterval(intervalId); };
+
+                            // DÉMARRAGE : On lance l'enregistrement
+                            rec.start();
+                            this.innerText = "⏹ Arrêter (Transcription en cours...)";
+                            this.style.background = "#1c1c1e";
+
+                            // TOUTES LES 5 SECONDES : On analyse ce qui a été dit
+                            intervalId = setInterval(async () => {
+                                if (rec.state === 'recording') {
+                                    // On crée un instantané de l'audio actuel sans couper l'enregistrement
+                                    const blobSnapshot = new Blob(audioChunks, { type: rec.mimeType });
+                                    if (blobSnapshot.size > 1000) { // On vérifie qu'il y a du contenu
+                                        const buffer = await blobSnapshot.arrayBuffer();
+                                        processAudioStreaming(buffer);
+                                    }
+                                }
+                            }, 3000); // 5000ms = 5 secondes
+
+                        } catch(e) { alert("Micro inaccessible : " + e.message); }
+                    } else {
+                        rec.stop();
+                        clearInterval(intervalId);
+                        this.innerText = "🎤 Enregistrer Micro";
+                        this.style.background = "var(--d)";
+                    }
+                };
+
+                // Nouvelle fonction d'analyse optimisée pour le streaming
+                async function processAudioStreaming(data) {
+                    const out = document.getElementById('output');
+                    try {
+                        const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+                        const decoded = await ctx.decodeAudioData(data);
+                        
+                        const res = await ai_pipeline(decoded.getChannelData(0), {
+                            language: 'french',
+                            task: 'transcribe',
+                            return_timestamps: false,
+                            repetition_penalty: 1.2
+                        });
+                        
+                        // On met à jour le texte (l'IA ré-analyse tout depuis le début pour garder le contexte)
+                        out.value = res.text.trim() + "...";
+                        // Auto-scroll vers le bas
+                        out.scrollTop = out.scrollHeight;
+                    } catch (e) { console.log("Streaming update skip"); }
+                }
 
         // GESTION DU FICHIER AUDIO
         const fileIn = document.getElementById('audio-file');
