@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>IA Transcription Flux</title>
+    <title>IA Transcription Master</title>
     <style>
         :root { --p: #007aff; --d: #ff3b30; --bg: #f2f2f7; }
         * { box-sizing: border-box; }
@@ -13,37 +13,37 @@
         button { width: 100%; border-radius: 12px; border: none; font-size: 16px; margin-top: 10px; padding: 14px; background: var(--p); color: white; font-weight: bold; cursor: pointer; }
         textarea { width: 100%; height: 400px; border-radius: 12px; border: 1px solid #d1d1d6; padding: 15px; margin-top: 15px; font-size: 16px; line-height: 1.5; background: #fff; resize: none; }
         .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin-top: 10px; }
-        .btn-file { background: #5856d6; }
         .recording { background: var(--d) !important; animation: pulse 1.5s infinite; }
         @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.7; } 100% { opacity: 1; } }
-        #progress-container { display:none; margin-top:10px; background:#eee; height:6px; border-radius:3px; overflow:hidden; }
-        #progress-bar { width:0%; height:100%; background:var(--p); transition: width 0.3s; }
+        #prog-container { display:none; margin-top:15px; background:#e5e5ea; height:20px; border-radius:10px; overflow:hidden; position:relative; }
+        #prog-bar { width:0%; height:100%; background:var(--p); transition: width 0.3s; }
+        #prog-text { position:absolute; width:100%; text-align:center; font-size:11px; line-height:20px; color:#fff; font-weight:bold; }
     </style>
 </head>
 <body>
     <div class="card">
-        <div id="lib-stat" class="badge">Chargement...</div>
+        <div id="lib-stat" class="badge">Initialisation IA...</div>
         
         <div id="setup">
             <select id="model-select">
-                <option value="Xenova/whisper-tiny">Whisper Tiny (Recommandé pour la fluidité)</option>
-                <option value="Xenova/whisper-base">Whisper Base (Plus lent mais très précis)</option>
+                <option value="Xenova/whisper-tiny">Whisper Tiny (Recommandé - Rapide)</option>
+                <option value="Xenova/whisper-base">Whisper Base (Précis - Lent)</option>
             </select>
-            <button id="btn-init">DÉMARRER L'IA</button>
+            <button id="btn-init">LANCER L'IA</button>
         </div>
 
         <div id="app" style="display:none">
-            <button id="btn-rec">🎤 Dictée (Temps réel)</button>
-            <div id="progress-container"><div id="progress-bar"></div></div>
-            <textarea id="output" placeholder="Parlez ou importez un fichier..."></textarea>
+            <button id="btn-rec">🎤 Dictée Vocale</button>
+            <div id="prog-container"><div id="prog-text">0%</div><div id="prog-bar"></div></div>
+            <textarea id="output" placeholder="Le texte s'ajoutera ici..."></textarea>
             
             <div class="grid">
-                <button id="btn-file-trigger" class="btn-file">📁 Import</button>
+                <button id="btn-file-trigger" style="background:#5856d6">📁 Import (MP3, M4A...)</button>
                 <button id="btn-copy" style="background:#8e8e93">📋 Copier</button>
                 <button id="btn-md" style="background:#444">💾 .MD</button>
                 <button id="btn-clear" style="background:#ff9500">🗑️ Effacer</button>
             </div>
-            <input type="file" id="audio-file" accept="audio/*" style="display:none">
+            <input type="file" id="audio-file" accept="audio/*,audio/mp4,audio/x-m4a,audio/m4a" style="display:none">
         </div>
     </div>
 
@@ -51,7 +51,7 @@
         import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2';
         env.allowLocalModels = false;
         window.ai_pipeline_func = pipeline;
-        document.getElementById('lib-stat').innerText = "✅ IA PRÊTE (Français)";
+        document.getElementById('lib-stat').innerText = "✅ IA PRÊTE";
         document.getElementById('lib-stat').style.background = "#34c759";
         document.getElementById('lib-stat').style.color = "white";
     </script>
@@ -62,12 +62,12 @@
         let rec;
         let chunks = [];
         let interval;
-        let validatedText = "";
         let isProcessing = false;
+        let lastResult = ""; // Pour ne pas répéter le même segment
 
         document.getElementById('btn-init').onclick = async () => {
             const btn = document.getElementById('btn-init');
-            btn.innerText = "⏳ Chargement du modèle...";
+            btn.innerText = "⏳ Téléchargement du cerveau IA...";
             try {
                 pipe = await window.ai_pipeline_func('automatic-speech-recognition', document.getElementById('model-select').value);
                 document.getElementById('setup').style.display = 'none';
@@ -75,86 +75,90 @@
             } catch(e) { alert(e.message); }
         };
 
-        // Fonction IA commune
         async function runAI(audio) {
-            return await pipe(audio, { 
-                language: 'french', 
-                task: 'transcribe',
-                repetition_penalty: 1.2
-            });
+            return await pipe(audio, { language: 'french', task: 'transcribe', repetition_penalty: 1.2 });
         }
 
-        // --- DICTÉE (CYCLE DE 3 SECONDES) ---
+        // --- DICTÉE AVEC CONCATÉNATION ---
         document.getElementById('btn-rec').onclick = async function() {
             if (!rec || rec.state === 'inactive') {
                 const s = await navigator.mediaDevices.getUserMedia({ audio: true });
                 rec = new MediaRecorder(s);
                 chunks = [];
-                validatedText = document.getElementById('output').value;
+                lastResult = ""; 
                 rec.ondataavailable = e => { if(e.data.size > 0) chunks.push(e.data); };
-                rec.start(500);
+                rec.start(1000);
                 this.innerText = "⏹ Arrêter";
                 this.classList.add('recording');
 
                 interval = setInterval(async () => {
-                    if (rec.state === 'recording' && chunks.length > 4 && !isProcessing) {
+                    if (rec.state === 'recording' && chunks.length > 3 && !isProcessing) {
                         isProcessing = true;
                         const blob = new Blob(chunks, { type: rec.mimeType });
                         const buf = await blob.arrayBuffer();
                         const ctx = new AudioContext({ sampleRate: 16000 });
                         const decoded = await ctx.decodeAudioData(buf);
-                        // Analyse courte (5s) pour la rapidité
-                        const slice = decoded.getChannelData(0).slice(-80000); 
-                        const res = await runAI(slice);
                         
-                        if (res.text.trim().length > 1) {
-                            document.getElementById('output').value = validatedText + " " + res.text.trim();
-                            document.getElementById('output').scrollTop = 99999;
+                        // On prend les 6 dernières secondes
+                        const slice = decoded.getChannelData(0).slice(-96000); 
+                        const res = await runAI(slice);
+                        const cleanText = res.text.trim();
+
+                        // CONCATÉNATION INTELLIGENTE : on ajoute seulement si c'est nouveau
+                        if (cleanText.length > 2 && cleanText !== lastResult) {
+                            const out = document.getElementById('output');
+                            // Si le texte finit par le début du nouveau, on ne double pas
+                            out.value += " " + cleanText;
+                            out.scrollTop = 99999;
+                            lastResult = cleanText;
                         }
-                        // On valide définitivement le texte toutes les 8s
-                        if (decoded.length % 128000 < 8000) validatedText = document.getElementById('output').value;
                         isProcessing = false;
                     }
-                }, 3000); 
+                }, 4000); 
             } else {
                 rec.stop();
                 clearInterval(interval);
-                this.innerText = "🎤 Dictée (Temps réel)";
+                this.innerText = "🎤 Dictée Vocale";
                 this.classList.remove('recording');
             }
         };
 
-        // --- IMPORT (TRANCHES DE 10 SECONDES) ---
+        // --- IMPORT AVEC BARRE DE PROGRESSION ---
         document.getElementById('btn-file-trigger').onclick = () => document.getElementById('audio-file').click();
         document.getElementById('audio-file').onchange = async (e) => {
             const f = e.target.files[0];
             if(!f) return;
+            
+            const pBox = document.getElementById('prog-container');
+            const pBar = document.getElementById('prog-bar');
+            const pText = document.getElementById('prog-text');
             const out = document.getElementById('output');
-            const pBox = document.getElementById('progress-container');
-            const pBar = document.getElementById('progress-bar');
             
-            out.value = "Analyse progressive du fichier...\n";
             pBox.style.display = "block";
+            out.value += "\n[Début de l'import : " + f.name + "]\n";
             
-            const buf = await f.arrayBuffer();
-            const ctx = new AudioContext({ sampleRate: 16000 });
-            const decoded = await ctx.decodeAudioData(buf);
-            const data = decoded.getChannelData(0);
-            
-            let pos = 0;
-            let fullResult = "";
-            const step = 16000 * 10; // 10 secondes par tranche
-            
-            while(pos < data.length) {
-                const chunk = data.slice(pos, pos + step);
-                const res = await runAI(chunk);
-                fullResult += res.text + " ";
-                out.value = fullResult;
-                out.scrollTop = 99999;
+            try {
+                const buf = await f.arrayBuffer();
+                const ctx = new AudioContext({ sampleRate: 16000 });
+                const decoded = await ctx.decodeAudioData(buf);
+                const data = decoded.getChannelData(0);
                 
-                pos += step;
-                pBar.style.width = Math.round((pos/data.length)*100) + "%";
-            }
+                let pos = 0;
+                const step = 16000 * 10; // Tranches de 10s
+                
+                while(pos < data.length) {
+                    const chunk = data.slice(pos, pos + step);
+                    const res = await runAI(chunk);
+                    out.value += res.text + " ";
+                    out.scrollTop = 99999;
+                    
+                    pos += step;
+                    const percent = Math.min(100, Math.round((pos/data.length)*100));
+                    pBar.style.width = percent + "%";
+                    pText.innerText = percent + "%";
+                }
+            } catch(err) { alert("Erreur fichier : " + err.message); }
+            
             pBox.style.display = "none";
             e.target.value = "";
         };
@@ -164,7 +168,7 @@
             const b = new Blob(["# Transcription\n\n" + document.getElementById('output').value], {type:'text/markdown'});
             const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = "transcription.md"; a.click();
         };
-        document.getElementById('btn-clear').onclick = () => { document.getElementById('output').value = ""; validatedText = ""; };
+        document.getElementById('btn-clear').onclick = () => { if(confirm("Effacer ?")) document.getElementById('output').value = ""; };
     })();
     </script>
 </body>
