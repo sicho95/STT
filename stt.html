@@ -2,173 +2,188 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>IA Transcription Master</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+    <title>IA Transcription Master GPU</title>
     <style>
-        :root { --p: #007aff; --d: #ff3b30; --bg: #f2f2f7; }
-        * { box-sizing: border-box; }
-        body { font-family: -apple-system, sans-serif; background: var(--bg); margin: 0; padding: 10px; display: flex; justify-content: center; }
-        .card { background: white; border-radius: 20px; padding: 20px; width: 100%; max-width: 800px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); }
-        .badge { display: block; text-align: center; padding: 8px; border-radius: 10px; font-size: 11px; font-weight: bold; background: #e5e5ea; margin-bottom: 10px; }
-        button { width: 100%; border-radius: 12px; border: none; font-size: 16px; margin-top: 10px; padding: 14px; background: var(--p); color: white; font-weight: bold; cursor: pointer; }
-        textarea { width: 100%; height: 400px; border-radius: 12px; border: 1px solid #d1d1d6; padding: 15px; margin-top: 15px; font-size: 16px; line-height: 1.5; background: #fff; resize: none; }
-        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin-top: 10px; }
+        :root { --p: #007aff; --d: #ff3b30; --s: #34c759; }
+        body { font-family: -apple-system, sans-serif; background: #f2f2f7; margin: 0; padding: 10px; display: flex; justify-content: center; }
+        .card { background: white; border-radius: 20px; padding: 15px; width: 100%; max-width: 800px; box-shadow: 0 5px 20px rgba(0,0,0,0.05); }
+        .badge { display: block; text-align: center; padding: 6px; border-radius: 10px; font-size: 11px; font-weight: bold; background: #e5e5ea; margin-bottom: 10px; }
+        button { width: 100%; border-radius: 12px; border: none; font-size: 16px; margin-top: 8px; padding: 14px; background: var(--p); color: white; font-weight: bold; cursor: pointer; }
+        textarea { width: 100%; height: 40vh; border-radius: 12px; border: 1px solid #d1d1d6; padding: 12px; margin-top: 10px; font-size: 16px; line-height: 1.4; background: #fff; resize: none; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 8px; margin-top: 10px; }
         .recording { background: var(--d) !important; animation: pulse 1.5s infinite; }
+        #prog { display:none; margin-top:10px; height:20px; background:#eee; border-radius:10px; overflow:hidden; position:relative; }
+        #prog-b { width:0%; height:100%; background:var(--s); transition: width 0.2s; }
+        #prog-t { position:absolute; width:100%; text-align:center; line-height:20px; font-size:11px; font-weight:bold; }
         @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.7; } 100% { opacity: 1; } }
-        #prog-container { display:none; margin-top:15px; background:#e5e5ea; height:20px; border-radius:10px; overflow:hidden; position:relative; }
-        #prog-bar { width:0%; height:100%; background:var(--p); transition: width 0.3s; }
-        #prog-text { position:absolute; width:100%; text-align:center; font-size:11px; line-height:20px; color:#fff; font-weight:bold; }
     </style>
 </head>
 <body>
     <div class="card">
-        <div id="lib-stat" class="badge">Initialisation IA...</div>
-        
+        <div id="stat" class="badge">Vérification des capacités de votre appareil...</div>
         <div id="setup">
-            <select id="model-select">
-                <option value="Xenova/whisper-tiny">Whisper Tiny (Recommandé - Rapide)</option>
-                <option value="Xenova/whisper-base">Whisper Base (Précis - Lent)</option>
+            <select id="model-select" style="width:100%; padding:10px; border-radius:8px; margin-bottom:10px;">
+                <option value="Xenova/whisper-tiny">Whisper Tiny (Recommandé Mobile/WebGPU)</option>
+                <option value="Xenova/whisper-base">Whisper Base (Précision Mac/PC)</option>
             </select>
-            <button id="btn-init">LANCER L'IA</button>
+            <button id="btn-init">LANCER LE MOTEUR IA</button>
         </div>
-
         <div id="app" style="display:none">
-            <button id="btn-rec">🎤 Dictée Vocale</button>
-            <div id="prog-container"><div id="prog-text">0%</div><div id="prog-bar"></div></div>
-            <textarea id="output" placeholder="Le texte s'ajoutera ici..."></textarea>
-            
+            <button id="btn-rec">🎤 DICTÉE RÉACTIVE</button>
+            <div id="prog"><div id="prog-t">0%</div><div id="prog-b"></div></div>
+            <textarea id="out" placeholder="Parlez ou importez un fichier..."></textarea>
             <div class="grid">
-                <button id="btn-file-trigger" style="background:#5856d6">📁 Import (MP3, M4A...)</button>
+                <button id="btn-file" style="background:#5856d6">📁 Fichier</button>
                 <button id="btn-copy" style="background:#8e8e93">📋 Copier</button>
                 <button id="btn-md" style="background:#444">💾 .MD</button>
-                <button id="btn-clear" style="background:#ff9500">🗑️ Effacer</button>
+                <button id="btn-clear" style="background:var(--d)">🗑️ Effacer</button>
             </div>
-            <input type="file" id="audio-file" accept="audio/*,audio/mp4,audio/x-m4a,audio/m4a" style="display:none">
+            <input type="file" id="f-in" accept="audio/*" style="display:none">
         </div>
     </div>
 
     <script type="module">
         import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2';
+        
+        // --- CONFIGURATION DE LA PUISSANCE ---
         env.allowLocalModels = false;
-        window.ai_pipeline_func = pipeline;
-        document.getElementById('lib-stat').innerText = "✅ IA PRÊTE";
-        document.getElementById('lib-stat').style.background = "#34c759";
-        document.getElementById('lib-stat').style.color = "white";
+        env.useBrowserCache = true;
+
+        async function initEngine(modelName) {
+            const badge = document.getElementById('stat');
+            let device = 'wasm'; // Par défaut
+
+            // 1. TENTATIVE WEBGPU
+            if (navigator.gpu) {
+                try {
+                    const adapter = await navigator.gpu.requestAdapter();
+                    if (adapter) {
+                        device = 'webgpu';
+                        badge.innerText = "🚀 MODE : WEBGPU (GPU ACCÉLÉRÉ)";
+                        badge.style.background = "#5856d6"; badge.style.color = "white";
+                    }
+                } catch (e) { console.log("WebGPU non supporté, repli WASM..."); }
+            }
+
+            // 2. CONFIGURATION MULTI-THREAD (SIMD) si pas WebGPU
+            if (device === 'wasm') {
+                env.backends.onnx.wasm.numThreads = navigator.hardwareConcurrency || 4;
+                badge.innerText = "⚡ MODE : WASM SIMD (MULTI-CPU)";
+                badge.style.background = "#34c759"; badge.style.color = "white";
+            }
+
+            return await pipeline('automatic-speech-recognition', modelName, {
+                device: device,
+                quantized: true // Modèles optimisés
+            });
+        }
+
+        window.initEngine = initEngine;
     </script>
 
     <script>
     (function() {
-        let pipe;
-        let rec;
-        let chunks = [];
-        let interval;
-        let isProcessing = false;
-        let lastResult = ""; // Pour ne pas répéter le même segment
+        let p; let rec; let chunks = []; let iv; let isBusy = false; let totalText = "";
 
         document.getElementById('btn-init').onclick = async () => {
-            const btn = document.getElementById('btn-init');
-            btn.innerText = "⏳ Téléchargement du cerveau IA...";
+            const b = document.getElementById('btn-init');
+            b.innerText = "⏳ Initialisation du cerveau IA...";
             try {
-                pipe = await window.ai_pipeline_func('automatic-speech-recognition', document.getElementById('model-select').value);
+                p = await window.initEngine(document.getElementById('model-select').value);
                 document.getElementById('setup').style.display = 'none';
                 document.getElementById('app').style.display = 'block';
-            } catch(e) { alert(e.message); }
-        };
-
-        async function runAI(audio) {
-            return await pipe(audio, { language: 'french', task: 'transcribe', repetition_penalty: 1.2 });
-        }
-
-        // --- DICTÉE AVEC CONCATÉNATION ---
-        document.getElementById('btn-rec').onclick = async function() {
-            if (!rec || rec.state === 'inactive') {
-                const s = await navigator.mediaDevices.getUserMedia({ audio: true });
-                rec = new MediaRecorder(s);
-                chunks = [];
-                lastResult = ""; 
-                rec.ondataavailable = e => { if(e.data.size > 0) chunks.push(e.data); };
-                rec.start(1000);
-                this.innerText = "⏹ Arrêter";
-                this.classList.add('recording');
-
-                interval = setInterval(async () => {
-                    if (rec.state === 'recording' && chunks.length > 3 && !isProcessing) {
-                        isProcessing = true;
-                        const blob = new Blob(chunks, { type: rec.mimeType });
-                        const buf = await blob.arrayBuffer();
-                        const ctx = new AudioContext({ sampleRate: 16000 });
-                        const decoded = await ctx.decodeAudioData(buf);
-                        
-                        // On prend les 6 dernières secondes
-                        const slice = decoded.getChannelData(0).slice(-96000); 
-                        const res = await runAI(slice);
-                        const cleanText = res.text.trim();
-
-                        // CONCATÉNATION INTELLIGENTE : on ajoute seulement si c'est nouveau
-                        if (cleanText.length > 2 && cleanText !== lastResult) {
-                            const out = document.getElementById('output');
-                            // Si le texte finit par le début du nouveau, on ne double pas
-                            out.value += " " + cleanText;
-                            out.scrollTop = 99999;
-                            lastResult = cleanText;
-                        }
-                        isProcessing = false;
-                    }
-                }, 4000); 
-            } else {
-                rec.stop();
-                clearInterval(interval);
-                this.innerText = "🎤 Dictée Vocale";
-                this.classList.remove('recording');
+            } catch(e) { 
+                alert("Erreur d'initialisation. Tentative en mode dégradé...");
+                console.error(e);
             }
         };
 
-        // --- IMPORT AVEC BARRE DE PROGRESSION ---
-        document.getElementById('btn-file-trigger').onclick = () => document.getElementById('audio-file').click();
-        document.getElementById('audio-file').onchange = async (e) => {
-            const f = e.target.files[0];
-            if(!f) return;
+        async function run(audio) {
+            return await p(audio, { 
+                language: 'french', 
+                task: 'transcribe', 
+                repetition_penalty: 1.2,
+                chunk_length_s: 30,
+                stride_length_s: 5
+            });
+        }
+
+        // --- DICTÉE VOCALE ---
+        document.getElementById('btn-rec').onclick = async function() {
+            if (!rec || rec.state === 'inactive') {
+                const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+                rec = new MediaRecorder(s); chunks = []; totalText = document.getElementById('out').value;
+                rec.ondataavailable = e => { if(e.data.size > 0) chunks.push(e.data); };
+                rec.start(1000);
+                this.innerText = "⏹ STOP (Traitement final)";
+                this.classList.add('recording');
+
+                iv = setInterval(async () => {
+                    if (!isBusy && chunks.length > 2) {
+                        isBusy = true;
+                        try {
+                            const b = new Blob(chunks, { type: rec.mimeType });
+                            const buf = await b.arrayBuffer();
+                            const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+                            const dec = await ctx.decodeAudioData(buf);
+                            const slice = dec.getChannelData(0).slice(-96000); // 6s
+                            const res = await run(slice);
+                            if (res.text.trim().length > 2) {
+                                document.getElementById('out').value = totalText + " " + res.text.trim();
+                                document.getElementById('out').scrollTop = 99999;
+                            }
+                            if (dec.length % 160000 < 16000) totalText = document.getElementById('out').value;
+                        } catch(e) {}
+                        isBusy = false;
+                    }
+                }, 3500);
+            } else {
+                rec.stop(); clearInterval(iv);
+                this.innerText = "🎤 DICTÉE RÉACTIVE";
+                this.classList.remove('recording');
+                // Un dernier petit délai pour laisser l'IA finir sa boucle
+                setTimeout(() => { isBusy = false; }, 1000);
+            }
+        };
+
+        // --- IMPORT FICHIER (M4A COMPATIBLE) ---
+        document.getElementById('btn-file').onclick = () => document.getElementById('f-in').click();
+        document.getElementById('f-in').onchange = async (e) => {
+            const f = e.target.files[0]; if(!f) return;
+            const pb = document.getElementById('prog'); const pbb = document.getElementById('prog-b'); const pt = document.getElementById('prog-t');
+            const o = document.getElementById('out');
             
-            const pBox = document.getElementById('prog-container');
-            const pBar = document.getElementById('prog-bar');
-            const pText = document.getElementById('prog-text');
-            const out = document.getElementById('output');
-            
-            pBox.style.display = "block";
-            out.value += "\n[Début de l'import : " + f.name + "]\n";
+            pb.style.display = "block"; o.value += "\n[Import: " + f.name + "]\n";
             
             try {
                 const buf = await f.arrayBuffer();
-                const ctx = new AudioContext({ sampleRate: 16000 });
-                const decoded = await ctx.decodeAudioData(buf);
-                const data = decoded.getChannelData(0);
+                const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+                const dec = await ctx.decodeAudioData(buf);
+                const data = dec.getChannelData(0);
                 
-                let pos = 0;
-                const step = 16000 * 10; // Tranches de 10s
-                
+                let pos = 0; const step = 16000 * 5; // Tranches de 5s pour la fluidité
                 while(pos < data.length) {
                     const chunk = data.slice(pos, pos + step);
-                    const res = await runAI(chunk);
-                    out.value += res.text + " ";
-                    out.scrollTop = 99999;
-                    
+                    const res = await run(chunk);
+                    o.value += res.text + " ";
+                    o.scrollTop = 99999;
                     pos += step;
-                    const percent = Math.min(100, Math.round((pos/data.length)*100));
-                    pBar.style.width = percent + "%";
-                    pText.innerText = percent + "%";
+                    const per = Math.round(pos/data.length*100);
+                    pbb.style.width = per + "%";
+                    pt.innerText = per + "%";
+                    await new Promise(r => setTimeout(r, 10));
                 }
-            } catch(err) { alert("Erreur fichier : " + err.message); }
-            
-            pBox.style.display = "none";
-            e.target.value = "";
+            } catch(err) { alert("Erreur décodage audio : " + err.message); }
+            pb.style.display = "none";
         };
 
-        document.getElementById('btn-copy').onclick = () => { document.getElementById('output').select(); document.execCommand('copy'); };
+        document.getElementById('btn-copy').onclick = () => { document.getElementById('out').select(); document.execCommand('copy'); };
         document.getElementById('btn-md').onclick = () => {
             const b = new Blob(["# Transcription\n\n" + document.getElementById('output').value], {type:'text/markdown'});
-            const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = "transcription.md"; a.click();
+            const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = "note.md"; a.click();
         };
-        document.getElementById('btn-clear').onclick = () => { if(confirm("Effacer ?")) document.getElementById('output').value = ""; };
+        document.getElementById('btn-clear').onclick = () => { if(confirm("Effacer ?")) { document.getElementById('out').value = ""; totalText = ""; } };
     })();
     </script>
 </body>
