@@ -1,9 +1,22 @@
 <!DOCTYPE html>
+<html>
+<body style="font-family:sans-serif; text-align:center; padding:50px; background:#f4f4f9;">
+    <div style="max-width:600px; margin:auto; background:white; padding:30px; border-radius:20px; box-shadow:0 10px 25px rgba(0,0,0,0.1);">
+        <h2 style="color:#007aff">Générateur STT Ultimate</h2>
+        <p>Cliquez sur le bouton pour générer le fichier HTML corrigé.</p>
+        <button id="go" style="padding:20px; background:#34c759; color:white; border:none; border-radius:12px; cursor:pointer; font-weight:bold; width:100%; font-size:16px;">
+            GÉNÉRER MON APPLICATION
+        </button>
+    </div>
+
+    <script>
+        document.getElementById('go').onclick = () => {
+            const finalHtml = `<!DOCTYPE html>
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-    <title>IA STT Ultimate</title>
+    <title>IA STT Ultimate - Correction</title>
     <style>
         :root { --p: #007aff; --d: #ff3b30; --s: #34c759; --w: #ff9500; }
         body { font-family: -apple-system, sans-serif; background: #f2f2f7; margin: 0; padding: 10px; display: flex; justify-content: center; }
@@ -14,7 +27,7 @@
         .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 8px; margin-top: 10px; }
         .recording { background: var(--d) !important; animation: pulse 1.5s infinite; }
         #prog { display:none; margin-top:10px; height:20px; background:#eee; border-radius:10px; overflow:hidden; position:relative; }
-        #prog-b { width:0%; height:100%; background:var(--s); transition: width 0.2s; }
+        #prog-b { width:0%; height:100%; background:var(--s); transition: width 0.3s; }
         #prog-t { position:absolute; width:100%; text-align:center; line-height:20px; font-size:11px; font-weight:bold; }
         @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.7; } 100% { opacity: 1; } }
         .control-panel { display: none; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
@@ -34,23 +47,19 @@
         
         <div id="app" style="display:none">
             <button id="btn-rec">🎤 DICTÉE (Temps Réel)</button>
-            
             <div id="prog"><div id="prog-t">0%</div><div id="prog-b"></div></div>
-            
             <div id="import-controls" class="control-panel">
-                <button id="btn-pause-import" style="background:var(--w)">⏸ Pause Import</button>
-                <button id="btn-stop-import" style="background:var(--d)">⏹ Annuler Import</button>
+                <button id="btn-pause-import" style="background:var(--w)">⏸ Pause</button>
+                <button id="btn-stop-import" style="background:var(--d)">⏹ Annuler</button>
             </div>
-
             <textarea id="out" placeholder="Le texte s'affichera ici..."></textarea>
-            
             <div class="grid">
                 <button id="btn-file" style="background:#5856d6">📁 Importer Audio</button>
                 <button id="btn-copy" style="background:#8e8e93">📋 Copier</button>
                 <button id="btn-md" style="background:#444">💾 .MD</button>
                 <button id="btn-clear" style="background:var(--d)">🗑️ Effacer</button>
             </div>
-            <input type="file" id="f-in" accept="audio/*,video/mp4,audio/mp4,audio/x-m4a,audio/m4a" style="display:none">
+            <input type="file" id="f-in" accept="audio/*,video/*" style="display:none">
         </div>
     </div>
 
@@ -62,174 +71,166 @@
         async function initEngine(modelName) {
             const badge = document.getElementById('stat');
             let device = 'wasm';
+            const isAppleMobile = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
-            if (navigator.gpu) {
+            if (navigator.gpu && !isAppleMobile) {
                 try {
                     const adapter = await navigator.gpu.requestAdapter();
-                    if (adapter) { device = 'webgpu'; badge.innerText = "🚀 WEBGPU ACTIF (Puissance Max)"; badge.style.background = "#5856d6"; badge.style.color = "white"; }
+                    if (adapter) { 
+                        device = 'webgpu'; 
+                        badge.innerText = "🚀 WEBGPU ACTIF"; 
+                        badge.style.background = "#5856d6"; badge.style.color = "white"; 
+                    }
                 } catch (e) {}
             }
             if (device === 'wasm') {
                 env.backends.onnx.wasm.numThreads = navigator.hardwareConcurrency || 4;
-                badge.innerText = "⚡ WASM SIMD ACTIF (Multi-Coeurs)"; badge.style.background = "#34c759"; badge.style.color = "white";
+                badge.innerText = isAppleMobile ? "⚡ MODE APPLE OPTIMISÉ" : "⚡ WASM SIMD ACTIF"; 
+                badge.style.background = "#34c759"; badge.style.color = "white";
             }
-
             return await pipeline('automatic-speech-recognition', modelName, { device: device, quantized: true });
         }
         window.initEngine = initEngine;
-    </script>
+    <\/script>
 
     <script>
     (function() {
         let p; let rec; let iv; let chunks = []; 
         let isBusy = false; let totalText = ""; let lastText = "";
-        
-        // Variables pour le contrôle d'import
-        let importPaused = false;
-        let importStopped = false;
+        let importPaused = false; let importStopped = false;
+        let globalAudioCtx = null;
+
+        function getCtx() {
+            if (!globalAudioCtx) globalAudioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+            return globalAudioCtx;
+        }
+
+        function isSilent(audioArray) {
+            let sum = 0;
+            for (let i = 0; i < audioArray.length; i++) sum += Math.abs(audioArray[i]);
+            return (sum / audioArray.length) < 0.005;
+        }
 
         document.getElementById('btn-init').onclick = async () => {
             const b = document.getElementById('btn-init');
-            b.innerText = "⏳ Chargement en cours (peut prendre du temps pour Small)...";
+            b.innerText = "⏳ Chargement...";
             b.disabled = true;
             try {
                 p = await window.initEngine(document.getElementById('model-select').value);
                 document.getElementById('setup').style.display = 'none';
                 document.getElementById('app').style.display = 'block';
-            } catch(e) { alert("Erreur. Rechargez la page."); b.disabled = false; }
+                getCtx(); 
+            } catch(e) { alert("Erreur d'initialisation."); b.disabled = false; }
         };
 
-        async function run(audio) {
-            return await p(audio, { language: 'french', task: 'transcribe', repetition_penalty: 1.2 });
-        }
+        // --- DICTÉE STREAMING (Mise à jour toutes les 3s) ---
+        document.getElementById('btn-rec').onclick = async function() {
+            if (!rec || rec.state === 'inactive') {
+                const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+                rec = new MediaRecorder(s); chunks = []; 
+                totalText = document.getElementById('out').value;
+                
+                rec.ondataavailable = e => { if(e.data.size > 0) chunks.push(e.data); };
+                rec.start(500); 
+                this.innerText = "⏹ STOP";
+                this.classList.add('recording');
 
-// --- LOGIQUE DICTÉE "IPHONE STYLE" (STREAMING) ---
-document.getElementById('btn-rec').onclick = async function() {
-    if (!rec || rec.state === 'inactive') {
-        const s = await navigator.mediaDevices.getUserMedia({ audio: true });
-        rec = new MediaRecorder(s); chunks = []; 
-        totalText = document.getElementById('out.value');
-        
-        rec.ondataavailable = e => { if(e.data.size > 0) chunks.push(e.data); };
-        rec.start(500); // On capture par micro-paquets de 0.5s
-        this.innerText = "⏹ STOP";
-        this.classList.add('recording');
-
-        iv = setInterval(async () => {
-            if (!isBusy && chunks.length > 4) {
-                isBusy = true;
-                try {
-                    const b = new Blob(chunks, { type: rec.mimeType });
-                    const buf = await b.arrayBuffer();
-                    const dec = await getCtx().decodeAudioData(buf);
-                    const fullChannel = dec.getChannelData(0);
-
-                    // ON PREND LES 30 DERNIÈRES SECONDES (pour la précision)
-                    // MAIS ON ANALYSE TOUTES LES 3 SECONDES (pour la vitesse)
-                    const slice = fullChannel.slice(-480000); 
-                    
-                    if (!isSilent(slice)) {
-                        // On demande à l'IA d'être très rapide (pas de fioritures)
-                        const res = await p(slice, { 
-                            language: 'french', 
-                            task: 'transcribe',
-                            return_timestamps: false,
-                            chunk_length_s: 30 
-                        });
-                        
-                        const newText = res.text.trim();
-                        // On affiche le "texte stable" + ce que l'IA vient de comprendre
-                        document.getElementById('out').value = totalText + " " + newText;
-                        document.getElementById('out').scrollTop = 99999;
+                iv = setInterval(async () => {
+                    if (!isBusy && chunks.length > 4) {
+                        isBusy = true;
+                        try {
+                            const b = new Blob(chunks, { type: rec.mimeType });
+                            const buf = await b.arrayBuffer();
+                            const ctx = getCtx();
+                            const dec = await ctx.decodeAudioData(buf);
+                            const slice = dec.getChannelData(0).slice(-480000); // Analyse les 30 dernières sec
+                            
+                            if (!isSilent(slice)) {
+                                const res = await p(slice, { language: 'french', task: 'transcribe' });
+                                const newText = res.text.trim();
+                                if (newText.length > 2 && newText !== lastText && !newText.includes("Karin")) {
+                                    document.getElementById('out').value = totalText + " " + newText;
+                                    document.getElementById('out').scrollTop = 99999;
+                                    lastText = newText;
+                                }
+                            }
+                        } catch(e) {}
+                        isBusy = false;
                     }
-                } catch(e) {}
-                isBusy = false;
+                }, 3000);
+            } else {
+                rec.stop(); clearInterval(iv);
+                this.innerText = "🎤 DICTÉE (Temps Réel)";
+                this.classList.remove('recording');
+                setTimeout(() => { totalText = document.getElementById('out').value; }, 500);
             }
-        }, 2500); // L'IA se relance toutes les 2.5 secondes
-    } else {
-        rec.stop(); clearInterval(iv);
-        this.innerText = "🎤 DICTÉE";
-        this.classList.remove('recording');
-        // On fixe le texte final
-        setTimeout(() => { totalText = document.getElementById('out').value; }, 500);
-    }
-};
-
-
-        // --- IMPORT FICHIER : PAUSE, STOP, M4A ---
-        document.getElementById('btn-file').onclick = () => document.getElementById('f-in').click();
-        
-        // Contrôles Import
-        const btnPause = document.getElementById('btn-pause-import');
-        const btnStop = document.getElementById('btn-stop-import');
-        
-        btnPause.onclick = () => {
-            importPaused = !importPaused;
-            btnPause.innerText = importPaused ? "▶️ Reprendre Import" : "⏸ Pause Import";
-            btnPause.style.background = importPaused ? "#34c759" : "var(--w)";
-        };
-        
-        btnStop.onclick = () => {
-            importStopped = true;
         };
 
+        // --- IMPORT FICHIER ---
         document.getElementById('f-in').onchange = async (e) => {
             const f = e.target.files[0]; if(!f) return;
             const pb = document.getElementById('prog'); const pbb = document.getElementById('prog-b'); const pt = document.getElementById('prog-t');
             const o = document.getElementById('out');
-            const ctrls = document.getElementById('import-controls');
             
-            // Initialisation de l'interface d'import
-            pb.style.display = "block"; 
-            ctrls.style.display = "grid";
-            importPaused = false; importStopped = false;
-            btnPause.innerText = "⏸ Pause Import"; btnPause.style.background = "var(--w)";
+            pb.style.display = "block";
+            document.getElementById('import-controls').style.display = "grid";
+            importStopped = false;
+            importPaused = false;
             
-            o.value += "\n[Import: " + f.name + "]\n";
+            o.value += "\\n[Import: " + f.name + "]\\n";
             
             try {
                 const buf = await f.arrayBuffer();
-                const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+                const ctx = getCtx();
                 const dec = await ctx.decodeAudioData(buf);
                 const data = dec.getChannelData(0);
-                
-                let pos = 0; const step = 16000 * 5; // Tranches de 5s pour fluidité
+                let pos = 0; const step = 16000 * 30;
                 
                 while(pos < data.length) {
-                    if (importStopped) {
-                        o.value += "\n[Import Annulé]\n";
-                        break;
-                    }
-                    if (importPaused) {
-                        await new Promise(r => setTimeout(r, 500));
-                        continue;
-                    }
+                    if (importStopped) break;
+                    if (importPaused) { await new Promise(r => setTimeout(r, 500)); continue; }
 
                     const chunk = data.slice(pos, pos + step);
-                    const res = await run(chunk);
-                    o.value += res.text + " ";
-                    o.scrollTop = 99999;
+                    if (!isSilent(chunk)) {
+                        const res = await p(chunk, { language: 'french' });
+                        if(!res.text.includes("Karin") && !res.text.includes("Sous-titres")) {
+                            o.value += res.text + " ";
+                            o.scrollTop = 99999;
+                        }
+                    }
                     
                     pos += step;
-                    const per = Math.round(pos/data.length*100);
+                    const per = Math.min(100, Math.round(pos/data.length*100));
                     pbb.style.width = per + "%";
                     pt.innerText = per + "%";
+                    await new Promise(r => setTimeout(r, 100));
                 }
-            } catch(err) { alert("Erreur décodage audio (M4A) : " + err.message); }
-            
-            pb.style.display = "none"; 
-            ctrls.style.display = "none";
-            e.target.value = ""; // Permet de réimporter le même fichier
+            } catch(err) { alert("Erreur décodage : " + err.message); }
+            pb.style.display = "none";
+            document.getElementById('import-controls').style.display = "none";
         };
 
-        // Boutons utilitaires
+        document.getElementById('btn-file').onclick = () => document.getElementById('f-in').click();
+        document.getElementById('btn-pause-import').onclick = () => { importPaused = !importPaused; };
+        document.getElementById('btn-stop-import').onclick = () => { importStopped = true; };
         document.getElementById('btn-copy').onclick = () => { document.getElementById('out').select(); document.execCommand('copy'); };
+        document.getElementById('btn-clear').onclick = () => { if(confirm("Effacer ?")) { document.getElementById('out').value = ""; totalText = ""; } };
         document.getElementById('btn-md').onclick = () => {
-            const b = new Blob(["# Transcription\n\n" + document.getElementById('out').value], {type:'text/markdown'});
-            const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = "note.md"; a.click();
+            const b = new Blob(["# Transcription\\n\\n" + document.getElementById('out').value], {type:'text/markdown'});
+            const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = "transcription.md"; a.click();
         };
-        document.getElementById('btn-clear').onclick = () => { if(confirm("Effacer tout le texte ?")) { document.getElementById('out').value = ""; totalText = ""; } };
     })();
+    <\/script>
+</body>
+</html>`;
+
+            const blob = new Blob([finalHtml], {type: 'text/html'});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = "stt_ultimate_fix.html";
+            a.click();
+        };
     </script>
 </body>
 </html>
