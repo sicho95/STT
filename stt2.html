@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+    <title>IA STT Ultimate</title>
+    <style>
+        :root { --p: #007aff; --d: #ff3b30; --s: #34c759; --w: #ff9500; }
+        body { font-family: -apple-system, sans-serif; background: #f2f2f7; margin: 0; padding: 10px; display: flex; justify-content: center; }
+        .card { background: white; border-radius: 20px; padding: 15px; width: 100%; max-width: 800px; box-shadow: 0 5px 20px rgba(0,0,0,0.05); }
+        .badge { display: block; text-align: center; padding: 6px; border-radius: 10px; font-size: 11px; font-weight: bold; background: #e5e5ea; margin-bottom: 10px; }
+        button { width: 100%; border-radius: 12px; border: none; font-size: 15px; margin-top: 8px; padding: 12px; background: var(--p); color: white; font-weight: bold; cursor: pointer; }
+        textarea { width: 100%; height: 40vh; border-radius: 12px; border: 1px solid #d1d1d6; padding: 12px; margin-top: 10px; font-size: 16px; line-height: 1.4; background: #fff; resize: none; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 8px; margin-top: 10px; }
+        .recording { background: var(--d) !important; animation: pulse 1.5s infinite; }
+        #prog { display:none; margin-top:10px; height:20px; background:#eee; border-radius:10px; overflow:hidden; position:relative; }
+        #prog-b { width:0%; height:100%; background:var(--s); transition: width 0.2s; }
+        #prog-t { position:absolute; width:100%; text-align:center; line-height:20px; font-size:11px; font-weight:bold; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.7; } 100% { opacity: 1; } }
+        .control-panel { display: none; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div id="stat" class="badge">Vérification Matériel...</div>
+        <div id="setup">
+            <select id="model-select" style="width:100%; padding:10px; border-radius:8px; margin-bottom:10px;">
+                <option value="Xenova/whisper-tiny">Whisper Tiny (Mobile / Rapide)</option>
+                <option value="Xenova/whisper-base">Whisper Base (PC / Équilibré)</option>
+                <option value="Xenova/whisper-small">Whisper Small (Mac M1+ / Très Précis)</option>
+            </select>
+            <button id="btn-init">CHARGER L'IA</button>
+        </div>
+        
+        <div id="app" style="display:none">
+            <button id="btn-rec">🎤 DICTÉE (Temps Réel)</button>
+            
+            <div id="prog"><div id="prog-t">0%</div><div id="prog-b"></div></div>
+            
+            <div id="import-controls" class="control-panel">
+                <button id="btn-pause-import" style="background:var(--w)">⏸ Pause Import</button>
+                <button id="btn-stop-import" style="background:var(--d)">⏹ Annuler Import</button>
+            </div>
+
+            <textarea id="out" placeholder="Le texte s'affichera ici..."></textarea>
+            
+            <div class="grid">
+                <button id="btn-file" style="background:#5856d6">📁 Importer Audio</button>
+                <button id="btn-copy" style="background:#8e8e93">📋 Copier</button>
+                <button id="btn-md" style="background:#444">💾 .MD</button>
+                <button id="btn-clear" style="background:var(--d)">🗑️ Effacer</button>
+            </div>
+            <input type="file" id="f-in" accept="audio/*,video/mp4,audio/mp4,audio/x-m4a,audio/m4a" style="display:none">
+        </div>
+    </div>
+
+    <script type="module">
+        import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2';
+        env.allowLocalModels = false;
+        env.useBrowserCache = true;
+
+        async function initEngine(modelName) {
+            const badge = document.getElementById('stat');
+            let device = 'wasm';
+
+            if (navigator.gpu) {
+                try {
+                    const adapter = await navigator.gpu.requestAdapter();
+                    if (adapter) { device = 'webgpu'; badge.innerText = "🚀 WEBGPU ACTIF (Puissance Max)"; badge.style.background = "#5856d6"; badge.style.color = "white"; }
+                } catch (e) {}
+            }
+            if (device === 'wasm') {
+                env.backends.onnx.wasm.numThreads = navigator.hardwareConcurrency || 4;
+                badge.innerText = "⚡ WASM SIMD ACTIF (Multi-Coeurs)"; badge.style.background = "#34c759"; badge.style.color = "white";
+            }
+
+            return await pipeline('automatic-speech-recognition', modelName, { device: device, quantized: true });
+        }
+        window.initEngine = initEngine;
+    </script>
+
+    <script>
+    (function() {
+        let p; let rec; let iv; let chunks = []; 
+        let isBusy = false; let totalText = ""; let lastText = "";
+        
+        // Variables pour le contrôle d'import
+        let importPaused = false;
+        let importStopped = false;
+
+        document.getElementById('btn-init').onclick = async () => {
+            const b = document.getElementById('btn-init');
+            b.innerText = "⏳ Chargement en cours (peut prendre du temps pour Small)...";
+            b.disabled = true;
+            try {
+                p = await window.initEngine(document.getElementById('model-select').value);
+                document.getElementById('setup').style.display = 'none';
+                document.getElementById('app').style.display = 'block';
+            } catch(e) { alert("Erreur. Rechargez la page."); b.disabled = false; }
+        };
+
+        async function run(audio) {
+            return await p(audio, { language: 'french', task: 'transcribe', repetition_penalty: 1.2 });
+        }
+
+        // --- DICTÉE : VRAI TEMPS RÉEL RETROUVÉ ---
+        document.getElementById('btn-rec').onclick = async function() {
+            if (!rec || rec.state === 'inactive') {
+                const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+                rec = new MediaRecorder(s); chunks = []; 
+                totalText = document.getElementById('out').value;
+                lastText = "";
+                
+                rec.ondataavailable = e => { if(e.data.size > 0) chunks.push(e.data); };
+                rec.start(500); // Récupère l'audio toutes les 0.5s
+                this.innerText = "⏹ STOP (Arrêter le micro)";
+                this.classList.add('recording');
+
+                // Boucle de mise à jour toutes les 3 secondes
+                iv = setInterval(async () => {
+                    if (!isBusy && chunks.length > 4) {
+                        isBusy = true;
+                        try {
+                            const b = new Blob(chunks, { type: rec.mimeType });
+                            const buf = await b.arrayBuffer();
+                            const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+                            const dec = await ctx.decodeAudioData(buf);
+                            
+                            // On lit les 5 dernières secondes
+                            const slice = dec.getChannelData(0).slice(-80000); 
+                            const res = await run(slice);
+                            const newText = res.text.trim();
+                            
+                            // Affichage direct si c'est nouveau
+                            if (newText.length > 2 && newText !== lastText) {
+                                document.getElementById('out').value = totalText + " " + newText;
+                                document.getElementById('out').scrollTop = 99999;
+                                lastText = newText;
+                            }
+                            
+                            // Fixer le texte en dur toutes les 8s pour vider la mémoire de la phrase
+                            if (dec.length % 128000 < 8000) {
+                                totalText = document.getElementById('out').value;
+                            }
+                        } catch(e) {}
+                        isBusy = false;
+                    }
+                }, 3000);
+            } else {
+                rec.stop(); clearInterval(iv);
+                this.innerText = "🎤 DICTÉE (Temps Réel)";
+                this.classList.remove('recording');
+                // L'IA finit le dernier bloc en arrière-plan sans bloquer
+                setTimeout(() => { isBusy = false; totalText = document.getElementById('out').value; }, 1000);
+            }
+        };
+
+        // --- IMPORT FICHIER : PAUSE, STOP, M4A ---
+        document.getElementById('btn-file').onclick = () => document.getElementById('f-in').click();
+        
+        // Contrôles Import
+        const btnPause = document.getElementById('btn-pause-import');
+        const btnStop = document.getElementById('btn-stop-import');
+        
+        btnPause.onclick = () => {
+            importPaused = !importPaused;
+            btnPause.innerText = importPaused ? "▶️ Reprendre Import" : "⏸ Pause Import";
+            btnPause.style.background = importPaused ? "#34c759" : "var(--w)";
+        };
+        
+        btnStop.onclick = () => {
+            importStopped = true;
+        };
+
+        document.getElementById('f-in').onchange = async (e) => {
+            const f = e.target.files[0]; if(!f) return;
+            const pb = document.getElementById('prog'); const pbb = document.getElementById('prog-b'); const pt = document.getElementById('prog-t');
+            const o = document.getElementById('out');
+            const ctrls = document.getElementById('import-controls');
+            
+            // Initialisation de l'interface d'import
+            pb.style.display = "block"; 
+            ctrls.style.display = "grid";
+            importPaused = false; importStopped = false;
+            btnPause.innerText = "⏸ Pause Import"; btnPause.style.background = "var(--w)";
+            
+            o.value += "\n[Import: " + f.name + "]\n";
+            
+            try {
+                const buf = await f.arrayBuffer();
+                const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+                const dec = await ctx.decodeAudioData(buf);
+                const data = dec.getChannelData(0);
+                
+                let pos = 0; const step = 16000 * 5; // Tranches de 5s pour fluidité
+                
+                while(pos < data.length) {
+                    if (importStopped) {
+                        o.value += "\n[Import Annulé]\n";
+                        break;
+                    }
+                    if (importPaused) {
+                        await new Promise(r => setTimeout(r, 500));
+                        continue;
+                    }
+
+                    const chunk = data.slice(pos, pos + step);
+                    const res = await run(chunk);
+                    o.value += res.text + " ";
+                    o.scrollTop = 99999;
+                    
+                    pos += step;
+                    const per = Math.round(pos/data.length*100);
+                    pbb.style.width = per + "%";
+                    pt.innerText = per + "%";
+                }
+            } catch(err) { alert("Erreur décodage audio (M4A) : " + err.message); }
+            
+            pb.style.display = "none"; 
+            ctrls.style.display = "none";
+            e.target.value = ""; // Permet de réimporter le même fichier
+        };
+
+        // Boutons utilitaires
+        document.getElementById('btn-copy').onclick = () => { document.getElementById('out').select(); document.execCommand('copy'); };
+        document.getElementById('btn-md').onclick = () => {
+            const b = new Blob(["# Transcription\n\n" + document.getElementById('out').value], {type:'text/markdown'});
+            const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = "note.md"; a.click();
+        };
+        document.getElementById('btn-clear').onclick = () => { if(confirm("Effacer tout le texte ?")) { document.getElementById('out').value = ""; totalText = ""; } };
+    })();
+    </script>
+</body>
+</html>
