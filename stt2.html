@@ -103,57 +103,58 @@
             return await p(audio, { language: 'french', task: 'transcribe', repetition_penalty: 1.2 });
         }
 
-        // --- DICTÉE : VRAI TEMPS RÉEL RETROUVÉ ---
-        document.getElementById('btn-rec').onclick = async function() {
-            if (!rec || rec.state === 'inactive') {
-                const s = await navigator.mediaDevices.getUserMedia({ audio: true });
-                rec = new MediaRecorder(s); chunks = []; 
-                totalText = document.getElementById('out').value;
-                lastText = "";
-                
-                rec.ondataavailable = e => { if(e.data.size > 0) chunks.push(e.data); };
-                rec.start(500); // Récupère l'audio toutes les 0.5s
-                this.innerText = "⏹ STOP (Arrêter le micro)";
-                this.classList.add('recording');
+// --- LOGIQUE DICTÉE "IPHONE STYLE" (STREAMING) ---
+document.getElementById('btn-rec').onclick = async function() {
+    if (!rec || rec.state === 'inactive') {
+        const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+        rec = new MediaRecorder(s); chunks = []; 
+        totalText = document.getElementById('out.value');
+        
+        rec.ondataavailable = e => { if(e.data.size > 0) chunks.push(e.data); };
+        rec.start(500); // On capture par micro-paquets de 0.5s
+        this.innerText = "⏹ STOP";
+        this.classList.add('recording');
 
-                // Boucle de mise à jour toutes les 3 secondes
-                iv = setInterval(async () => {
-                    if (!isBusy && chunks.length > 4) {
-                        isBusy = true;
-                        try {
-                            const b = new Blob(chunks, { type: rec.mimeType });
-                            const buf = await b.arrayBuffer();
-                            const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-                            const dec = await ctx.decodeAudioData(buf);
-                            
-                            // On lit les 5 dernières secondes
-                            const slice = dec.getChannelData(0).slice(-80000); 
-                            const res = await run(slice);
-                            const newText = res.text.trim();
-                            
-                            // Affichage direct si c'est nouveau
-                            if (newText.length > 2 && newText !== lastText) {
-                                document.getElementById('out').value = totalText + " " + newText;
-                                document.getElementById('out').scrollTop = 99999;
-                                lastText = newText;
-                            }
-                            
-                            // Fixer le texte en dur toutes les 8s pour vider la mémoire de la phrase
-                            if (dec.length % 128000 < 8000) {
-                                totalText = document.getElementById('out').value;
-                            }
-                        } catch(e) {}
-                        isBusy = false;
+        iv = setInterval(async () => {
+            if (!isBusy && chunks.length > 4) {
+                isBusy = true;
+                try {
+                    const b = new Blob(chunks, { type: rec.mimeType });
+                    const buf = await b.arrayBuffer();
+                    const dec = await getCtx().decodeAudioData(buf);
+                    const fullChannel = dec.getChannelData(0);
+
+                    // ON PREND LES 30 DERNIÈRES SECONDES (pour la précision)
+                    // MAIS ON ANALYSE TOUTES LES 3 SECONDES (pour la vitesse)
+                    const slice = fullChannel.slice(-480000); 
+                    
+                    if (!isSilent(slice)) {
+                        // On demande à l'IA d'être très rapide (pas de fioritures)
+                        const res = await p(slice, { 
+                            language: 'french', 
+                            task: 'transcribe',
+                            return_timestamps: false,
+                            chunk_length_s: 30 
+                        });
+                        
+                        const newText = res.text.trim();
+                        // On affiche le "texte stable" + ce que l'IA vient de comprendre
+                        document.getElementById('out').value = totalText + " " + newText;
+                        document.getElementById('out').scrollTop = 99999;
                     }
-                }, 3000);
-            } else {
-                rec.stop(); clearInterval(iv);
-                this.innerText = "🎤 DICTÉE (Temps Réel)";
-                this.classList.remove('recording');
-                // L'IA finit le dernier bloc en arrière-plan sans bloquer
-                setTimeout(() => { isBusy = false; totalText = document.getElementById('out').value; }, 1000);
+                } catch(e) {}
+                isBusy = false;
             }
-        };
+        }, 2500); // L'IA se relance toutes les 2.5 secondes
+    } else {
+        rec.stop(); clearInterval(iv);
+        this.innerText = "🎤 DICTÉE";
+        this.classList.remove('recording');
+        // On fixe le texte final
+        setTimeout(() => { totalText = document.getElementById('out').value; }, 500);
+    }
+};
+
 
         // --- IMPORT FICHIER : PAUSE, STOP, M4A ---
         document.getElementById('btn-file').onclick = () => document.getElementById('f-in').click();
