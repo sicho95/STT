@@ -272,65 +272,67 @@
                 let intervalId;
 
                 document.getElementById('btn-rec').onclick = async function() {
-                    if (!rec || rec.state === 'inactive') {
-                        try {
-                            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                            rec = new MediaRecorder(stream);
-                            audioChunks = [];
-                            
-                            rec.ondataavailable = e => {
-                                if (e.data.size > 0) audioChunks.push(e.data);
-                            };
+                            if (!rec || rec.state === 'inactive') {
+                                try {
+                                    const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+                                    rec = new MediaRecorder(s);
+                                    audioChunks = [];
+                                    
+                                    // On récupère les données chaque seconde
+                                    rec.ondataavailable = e => {
+                                        if (e.data.size > 0) audioChunks.push(e.data);
+                                    };
 
-                            rec.onstop = () => { clearInterval(intervalId); };
+                                    rec.onstop = () => { clearInterval(intervalId); };
 
-                            // DÉMARRAGE : On lance l'enregistrement
-                            rec.start();
-                            this.innerText = "⏹ Arrêter (Transcription en cours...)";
-                            this.style.background = "#1c1c1e";
+                                    // IMPORTANT : on ajoute 1000 ici pour forcer le flux
+                                    rec.start(1000);
+                                    
+                                    this.innerText = "⏹ Arrêter (Transcription...)";
+                                    this.style.background = "#1c1c1e";
 
-                            // TOUTES LES 5 SECONDES : On analyse ce qui a été dit
-                            intervalId = setInterval(async () => {
-                                if (rec.state === 'recording') {
-                                    // On crée un instantané de l'audio actuel sans couper l'enregistrement
-                                    const blobSnapshot = new Blob(audioChunks, { type: rec.mimeType });
-                                    if (blobSnapshot.size > 1000) { // On vérifie qu'il y a du contenu
-                                        const buffer = await blobSnapshot.arrayBuffer();
-                                        processAudioStreaming(buffer);
-                                    }
-                                }
-                            }, 3000); // 5000ms = 5 secondes
+                                    intervalId = setInterval(async () => {
+                                        if (rec.state === 'recording' && audioChunks.length > 0) {
+                                            // On crée le snapshot à partir des morceaux accumulés
+                                            const blobSnapshot = new Blob(audioChunks, { type: rec.mimeType });
+                                            const buffer = await blobSnapshot.arrayBuffer();
+                                            processAudioStreaming(buffer);
+                                        }
+                                    }, 3000); // Analyse toutes les 5 secondes
 
-                        } catch(e) { alert("Micro inaccessible : " + e.message); }
-                    } else {
-                        rec.stop();
-                        clearInterval(intervalId);
-                        this.innerText = "🎤 Enregistrer Micro";
-                        this.style.background = "var(--d)";
-                    }
-                };
+                                } catch(e) { alert("Micro inaccessible : " + e.message); }
+                            } else {
+                                rec.stop();
+                                clearInterval(intervalId);
+                                this.innerText = "🎤 Enregistrer Micro";
+                                this.style.background = "var(--d)";
+                            }
+                        };
 
                 // Nouvelle fonction d'analyse optimisée pour le streaming
                 async function processAudioStreaming(data) {
-                    const out = document.getElementById('output');
-                    try {
-                        const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-                        const decoded = await ctx.decodeAudioData(data);
-                        
-                        const res = await ai_pipeline(decoded.getChannelData(0), {
-                            language: 'french',
-                            task: 'transcribe',
-                            return_timestamps: false,
-                            repetition_penalty: 1.2
-                        });
-                        
-                        // On met à jour le texte (l'IA ré-analyse tout depuis le début pour garder le contexte)
-                        out.value = res.text.trim() + "...";
-                        // Auto-scroll vers le bas
-                        out.scrollTop = out.scrollHeight;
-                    } catch (e) { console.log("Streaming update skip"); }
-                }
-
+                            const out = document.getElementById('output');
+                            try {
+                                const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+                                const decoded = await ctx.decodeAudioData(data);
+                                
+                                const res = await ai_pipeline(decoded.getChannelData(0), {
+                                    language: 'french',
+                                    task: 'transcribe',
+                                    return_timestamps: false,
+                                    repetition_penalty: 1.2,
+                                    no_repeat_ngram_size: 4
+                                });
+                                
+                                if (res.text) {
+                                    out.value = res.text.trim() + "...";
+                                    out.scrollTop = out.scrollHeight;
+                                }
+                            } catch (e) {
+                                // On ignore les erreurs de décodage temporaires durant le flux
+                                console.log("Audio en attente de données suffisantes...");
+                            }
+                        }
         // GESTION DU FICHIER AUDIO
         const fileIn = document.getElementById('audio-file');
         document.getElementById('btn-file-trigger').onclick = () => fileIn.click();
